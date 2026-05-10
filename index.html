@@ -130,17 +130,52 @@
     // ⚠️ แก้ไข URL นี้ให้ตรงกับ Apps Script Web App ของคุณ
     // วิธีได้ URL: Apps Script → Deploy → New deployment → Web app
     //              Execute as: Me | Who has access: Anyone
-    const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzxHqClqY1dV4-sZdOCqlE1B_x9ZywQ8fWXBoy8Y53W8pvqoTecwAX3os_291z5pw6ngw/exec';
+    const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzA2TVDzblQiHED9zyQJjh2lxZrHHJaKVBemeBhg9_NCG9pXtnDq-LG1q3aLOUCZDls4A/exec';
 
-    // ── wrapper แทน google.script.run ──────────────────────
-    // เรียก Apps Script ผ่าน fetch แทน google.script.run
+    // ── JSONP wrapper — แก้ปัญหา CORS ────────────────────────
+    // fetch() ถูก CORS บล็อกเพราะ Apps Script redirect ข้าม origin
+    // JSONP inject <script> tag แทน ทำให้ browser ไม่ตรวจ CORS
     const GAS = {
-      call: async function(fnName, payload) {
-        const params = new URLSearchParams({ fn: fnName });
-        if (payload !== undefined) params.append('payload', JSON.stringify(payload));
-        const res  = await fetch(`${APPS_SCRIPT_URL}?${params.toString()}`, { redirect: 'follow' });
-        const json = await res.json();
-        return json;
+      _cbId: 0,
+
+      call: function(fnName, payload) {
+        return new Promise(function(resolve, reject) {
+          const cbName = '__gasCallback_' + (++GAS._cbId) + '_' + Date.now();
+
+          // timeout 30 วินาที (สำหรับ pdfBase64 ที่ข้อมูลใหญ่)
+          const timer = setTimeout(function() {
+            cleanup();
+            reject(new Error('หมดเวลาการเชื่อมต่อ (30s) — ตรวจสอบ APPS_SCRIPT_URL และ Deploy settings'));
+          }, 30000);
+
+          function cleanup() {
+            clearTimeout(timer);
+            delete window[cbName];
+            const el = document.getElementById(cbName);
+            if (el) el.remove();
+          }
+
+          // Apps Script จะเรียก window[cbName](result)
+          window[cbName] = function(result) {
+            cleanup();
+            resolve(result);
+          };
+
+          // สร้าง URL พร้อม callback parameter
+          const params = new URLSearchParams({ fn: fnName, callback: cbName });
+          if (payload !== undefined) {
+            params.append('payload', JSON.stringify(payload));
+          }
+
+          const script = document.createElement('script');
+          script.id  = cbName;
+          script.src = APPS_SCRIPT_URL + '?' + params.toString();
+          script.onerror = function() {
+            cleanup();
+            reject(new Error('โหลด script ล้มเหลว — ตรวจสอบ APPS_SCRIPT_URL'));
+          };
+          document.head.appendChild(script);
+        });
       }
     };
   </script>
