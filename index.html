@@ -130,7 +130,7 @@
     // ⚠️ แก้ไข URL นี้ให้ตรงกับ Apps Script Web App ของคุณ
     // วิธีได้ URL: Apps Script → Deploy → New deployment → Web app
     //              Execute as: Me | Who has access: Anyone
-    const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzA2TVDzblQiHED9zyQJjh2lxZrHHJaKVBemeBhg9_NCG9pXtnDq-LG1q3aLOUCZDls4A/exec';
+    const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbx9sozJL8AM1qnT_LfTZ18SWp06U3yH_8uLAO8sPEqzmY36XlmId0T9ZTIxIpGobFzQ_A/exec';
 
     // ── JSONP wrapper — แก้ปัญหา CORS ────────────────────────
     // fetch() ถูก CORS บล็อกเพราะ Apps Script redirect ข้าม origin
@@ -828,46 +828,51 @@
 
       const pdfDocGen = pdfMake.createPdf(docDef);
 
-      pdfDocGen.getBase64(async function(pdfBase64) {
-        // ดาวน์โหลดทันที
-        pdfDocGen.download(`Certificate_${studentData.id}.pdf`);
+      // ── ดาวน์โหลด PDF ฝั่ง client ก่อนเลย ──────────────────
+      pdfDocGen.download('Certificate_' + studentData.id + '.pdf');
 
-        // ส่ง server: mark certified + ส่งอีเมล
-        try {
-          const serverResult = await GAS.call('markCertifiedAndSendEmail', {
-            email: studentData.id, fullName: studentData.name, classGroup: studentData.class,
-            score: correct, totalQuestions: examData.length, percentage,
-            examDuration: examDurationGlobal, date: dateStr, pdfBase64
-          });
+      // ── ส่งเฉพาะ metadata ไป server (ไม่ส่ง pdfBase64) ──────
+      // server สร้าง PDF เองจาก Drive แล้วแนบอีเมลส่งให้ผู้สอบ
+      try {
+        const serverResult = await GAS.call('markCertifiedAndSendEmail', {
+          email:          studentData.id,
+          fullName:       studentData.name,
+          classGroup:     studentData.class,
+          score:          correct,
+          totalQuestions: examData.length,
+          percentage:     percentage,
+          examDuration:   examDurationGlobal,
+          date:           dateStr
+          // ไม่ส่ง pdfBase64 — server สร้าง PDF เองจาก Drive background
+        });
 
-          Swal.close();
+        Swal.close();
 
-          if (!serverResult.success) {
-            Swal.fire({
-              icon: 'warning', title: 'ดาวน์โหลดสำเร็จ แต่เกิดข้อผิดพลาด',
-              text: serverResult.message, confirmButtonText: 'ตกลง'
-            }).then(() => window.location.reload());
-            return;
-          }
-
-          const emailMsg = serverResult.emailSent
-            ? '📧 ส่งเกียรติบัตรไปยังอีเมลของท่านเรียบร้อยแล้ว'
-            : '⚠️ ส่งอีเมลไม่สำเร็จ: ' + (serverResult.emailError || 'ไม่ทราบสาเหตุ');
-
+        if (!serverResult.success) {
           Swal.fire({
-            icon: 'success', title: '🎉 ดาวน์โหลดเกียรติบัตรสำเร็จ!',
-            html: `<p>${emailMsg}</p><p class="text-sm text-gray-500 mt-2">ระบบจะกลับสู่หน้าหลักเพื่อเริ่มต้นใหม่</p>`,
-            confirmButtonText: 'ตกลง', allowOutsideClick: false
-          }).then(() => window.location.reload());
-
-        } catch (err) {
-          Swal.close();
-          Swal.fire({
-            icon: 'warning', title: 'ดาวน์โหลดสำเร็จ แต่บันทึกล้มเหลว',
-            text: err.toString(), confirmButtonText: 'ตกลง'
-          }).then(() => window.location.reload());
+            icon: 'warning', title: 'ดาวน์โหลดสำเร็จ แต่เกิดข้อผิดพลาด',
+            text: serverResult.message, confirmButtonText: 'ตกลง'
+          }).then(function() { window.location.reload(); });
+          return;
         }
-      });
+
+        const emailMsg = serverResult.emailSent
+          ? '📧 ส่งเกียรติบัตรไปยังอีเมลของท่านเรียบร้อยแล้ว'
+          : '⚠️ ส่งอีเมลไม่สำเร็จ: ' + (serverResult.emailError || 'ไม่ทราบสาเหตุ');
+
+        Swal.fire({
+          icon: 'success', title: '🎉 ดาวน์โหลดเกียรติบัตรสำเร็จ!',
+          html: '<p>' + emailMsg + '</p><p class="text-sm text-gray-500 mt-2">ระบบจะกลับสู่หน้าหลักเพื่อเริ่มต้นใหม่</p>',
+          confirmButtonText: 'ตกลง', allowOutsideClick: false
+        }).then(function() { window.location.reload(); });
+
+      } catch (err) {
+        Swal.close();
+        Swal.fire({
+          icon: 'warning', title: 'ดาวน์โหลดสำเร็จ แต่บันทึกล้มเหลว',
+          text: err.toString(), confirmButtonText: 'ตกลง'
+        }).then(function() { window.location.reload(); });
+      }
 
     } catch (err) {
       Swal.fire({ icon: 'error', title: 'โหลดฟอนต์ไม่สำเร็จ', text: err.toString() });
